@@ -3,16 +3,23 @@
 import { useState } from "react";
 
 interface Props {
-  onStart: (name: string) => void;
+  onStart: (name: string) => Promise<void> | void;
 }
 
 export default function WelcomeScreen({ onStart }: Props) {
   const [name, setName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = name.trim();
-    if (trimmed) onStart(trimmed);
+    if (!trimmed || submitting) return;
+    setSubmitting(true);
+    try {
+      await onStart(trimmed);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -50,10 +57,10 @@ export default function WelcomeScreen({ onStart }: Props) {
         </div>
         <button
           type="submit"
-          disabled={!name.trim()}
+          disabled={!name.trim() || submitting}
           className="w-full py-3 rounded-lg bg-amber-600 text-white font-medium tracking-wide transition-colors hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Åpne kamera
+          {submitting ? "Sjekker..." : "Åpne kamera"}
         </button>
       </form>
 

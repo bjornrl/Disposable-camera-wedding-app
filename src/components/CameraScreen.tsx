@@ -3,22 +3,31 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { FILTERS, FilterDef } from "@/lib/filters";
 import { uploadPhoto } from "@/lib/upload";
+import { incrementPhotoCount } from "@/lib/guests";
 
 const MAX_PHOTOS = 10;
 
 interface Props {
   guestName: string;
+  initialPhotoCount?: number;
+  adminMode?: boolean;
 }
 
-export default function CameraScreen({ guestName }: Props) {
+export default function CameraScreen({
+  guestName,
+  initialPhotoCount = 0,
+  adminMode = false,
+}: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   const [started, setStarted] = useState(false);
-  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
+  const [facingMode, setFacingMode] = useState<"environment" | "user">(
+    "environment"
+  );
   const [filter, setFilter] = useState<FilterDef>(FILTERS[0]);
-  const [photosTaken, setPhotosTaken] = useState(0);
+  const [photosTaken, setPhotosTaken] = useState(initialPhotoCount);
   const [flash, setFlash] = useState(false);
   const [lastPhoto, setLastPhoto] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -71,8 +80,8 @@ export default function CameraScreen({ guestName }: Props) {
   };
 
   const takePhoto = async () => {
-    if (!videoRef.current || !canvasRef.current || photosTaken >= MAX_PHOTOS)
-      return;
+    if (!videoRef.current || !canvasRef.current) return;
+    if (!adminMode && photosTaken >= MAX_PHOTOS) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -123,21 +132,23 @@ export default function CameraScreen({ guestName }: Props) {
     const previewUrl = URL.createObjectURL(blob);
     setLastPhoto(previewUrl);
 
-    // Upload
+    // Upload to storage + increment DB count
     setUploading(true);
     try {
       await uploadPhoto(blob, guestName, newCount);
+      const dbCount = await incrementPhotoCount(guestName);
+      setPhotosTaken(dbCount);
+
+      if (!adminMode && dbCount >= MAX_PHOTOS) {
+        setDone(true);
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((t) => t.stop());
+        }
+      }
     } catch {
       setError("Opplasting feilet. Bildet blir forsøkt på nytt.");
     } finally {
       setUploading(false);
-    }
-
-    if (newCount >= MAX_PHOTOS) {
-      setDone(true);
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
     }
   };
 
@@ -147,8 +158,8 @@ export default function CameraScreen({ guestName }: Props) {
         <div className="text-5xl mb-6">📸</div>
         <h2 className="text-2xl font-serif mb-3">Alle bilder er brukt!</h2>
         <p className="text-stone-400 max-w-xs">
-          Takk, {guestName}! Dine {MAX_PHOTOS} bilder er lastet opp.
-          Brudeparet vil elske dem!
+          Takk, {guestName}! Dine {MAX_PHOTOS} bilder er lastet opp. Brudeparet
+          vil elske dem!
         </p>
         {lastPhoto && (
           <img
@@ -171,11 +182,16 @@ export default function CameraScreen({ guestName }: Props) {
       {/* Hidden canvas for capture */}
       <canvas ref={canvasRef} className="hidden" />
 
+      {/* Admin badge */}
+      {adminMode && (
+        <div className="absolute top-3 left-3 z-20 bg-red-600 text-white text-[10px] font-mono font-bold px-2 py-0.5 rounded">
+          ADMIN
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="relative z-10 flex items-center justify-between px-4 py-3 bg-black/60">
-        <span className="text-stone-300 text-xs font-mono">
-          {guestName}
-        </span>
+        <span className="text-stone-300 text-xs font-mono">{guestName}</span>
         <span className="text-amber-400 text-xs font-mono tracking-wider">
           {photosTaken}/{MAX_PHOTOS}
         </span>
@@ -277,7 +293,7 @@ export default function CameraScreen({ guestName }: Props) {
         {/* Shutter button */}
         <button
           onClick={takePhoto}
-          disabled={!started || photosTaken >= MAX_PHOTOS}
+          disabled={!started || (!adminMode && photosTaken >= MAX_PHOTOS)}
           className="w-[72px] h-[72px] rounded-full border-4 border-stone-300 flex items-center justify-center transition-transform active:scale-95 disabled:opacity-30"
           aria-label="Ta bilde"
         >
